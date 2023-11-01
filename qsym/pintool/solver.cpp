@@ -182,8 +182,12 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc) {
   else
     is_interesting = isInterestingJcc(e, taken, pc);
 
-  if (is_interesting)
+  
+  //@SJJ TODO: directed
+  const char* ch = std::getenv("NO_NEGATE");
+  if (is_interesting && ch == nullptr) {
     negatePath(e, taken);
+  }  
   addConstraint(e, taken, is_interesting);
 }
 
