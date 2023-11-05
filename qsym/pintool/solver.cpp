@@ -157,10 +157,14 @@ bool Solver::checkAndSave(const std::string& postfix) {
   }
 }
 
-void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc) {
+void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, 
+  bool is_directed_mode,
+  bool is_directed_target) {
   // Save the last instruction pointer for debugging
   last_pc_ = pc;
-
+  
+  std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "is_target : "<<is_directed_mode << " | "  
+            << "is_direct: " << is_directed_target << "\n";
   if (e->isConcrete())
     return;
 
@@ -183,9 +187,18 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc) {
     is_interesting = isInterestingJcc(e, taken, pc);
 
   
-  //@SJJ TODO: directed
-  const char* ch = std::getenv("NO_NEGATE");
-  if (is_interesting && ch == nullptr) {
+  
+  //const char* ch = std::getenv("NO_NEGATE");
+
+  if (is_directed_mode && is_directed_target) {
+    if (!is_interesting) {
+      std::cerr << "\033[33m" <<  "[ INFO ]" << "\033[0m" << "branch not interesting\n";
+    }
+    //@SJJ TODO: directed
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << " targat !! trying to negate\n";
+    negatePath(e, taken);
+  }
+  if (!is_directed_mode && is_interesting) {
     negatePath(e, taken);
   }  
   addConstraint(e, taken, is_interesting);
@@ -525,6 +538,7 @@ void Solver::negatePath(ExprRef e, bool taken) {
   addToSolver(e, !taken);
   bool sat = checkAndSave();
   if (!sat) {
+    cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[31m" << "shit"  << "\033[0m"<< ", unsat, reseting\n";
     reset();
     // optimistic solving
     addToSolver(e, !taken);

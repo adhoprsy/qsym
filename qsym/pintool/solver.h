@@ -38,7 +38,7 @@ public:
   z3::check_result check();
 
   bool checkAndSave(const std::string& postfix="");
-  void addJcc(ExprRef, bool, ADDRINT);
+  void addJcc(ExprRef, bool, ADDRINT, /* @SJJ */bool, bool);
   void addAddr(ExprRef, ADDRINT);
   void addAddr(ExprRef, llvm::APInt);
   void addValue(ExprRef, ADDRINT);
