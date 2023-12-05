@@ -152,25 +152,31 @@ bool Solver::checkAndSave(const std::string& postfix) {
     return true;
   }
   else {
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "unsat" << "\n";
     LOG_DEBUG("unsat\n");
     return false;
   }
 }
 
 void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, 
+  /* @SJJ */
   bool is_directed_mode,
   bool is_directed_target) {
   // Save the last instruction pointer for debugging
   last_pc_ = pc;
-  
+  #ifdef DIRECT_DEBUG
   std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "is_target : "<<is_directed_mode << " | "  
             << "is_direct: " << is_directed_target << "\n";
-  if (e->isConcrete())
+  #endif
+  if (e->isConcrete()) {
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "expr is concrete \n";
     return;
+  }
 
   // if e == Bool(true), then ignore
   if (e->kind() == Bool) {
     assert(!(castAs<BoolExpr>(e)->value()  ^ taken));
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "e == true\n";
     return;
   }
 
@@ -186,16 +192,14 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc,
   else
     is_interesting = isInterestingJcc(e, taken, pc);
 
-  
-  
   //const char* ch = std::getenv("NO_NEGATE");
 
   if (is_directed_mode && is_directed_target) {
     if (!is_interesting) {
-      std::cerr << "\033[33m" <<  "[ INFO ]" << "\033[0m" << "branch not interesting\n";
+      std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "branch not interesting\n";
     }
     //@SJJ TODO: directed
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << " targat !! trying to negate\n";
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << " targat found, trying to negate\n";
     negatePath(e, taken);
   }
   if (!is_directed_mode && is_interesting) {
@@ -210,8 +214,12 @@ void Solver::addAddr(ExprRef e, ADDRINT addr) {
 }
 
 void Solver::addAddr(ExprRef e, llvm::APInt addr) {
-  if (e->isConcrete())
+  if (e->isConcrete()) {
+    #ifdef DIRECT_DEBUG
+      std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "is concrete addaddr\n";
+    #endif
     return;
+  }
 
   if (last_interested_) {
     reset();
@@ -237,8 +245,12 @@ void Solver::addValue(ExprRef e, ADDRINT val) {
 }
 
 void Solver::addValue(ExprRef e, llvm::APInt val) {
-  if (e->isConcrete())
+  if (e->isConcrete()) {
+    #ifdef DIRECT_DEBUG
+      std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "is concrete addvalue\n";
+    #endif
     return;
+  }
 
 #ifdef CONFIG_TRACE
   trace_addValue(e, val);
@@ -262,6 +274,7 @@ void Solver::solveAll(ExprRef e, llvm::APInt val) {
 
     if (check() != z3::sat) {
       // Optimistic solving
+      std::cerr << "\033[33m" <<  "[ INFO ]" << "\033[0m" << "optimistic solving\n";
       reset();
       addToSolver(expr_concrete, false);
       postfix = "optimistic";
@@ -337,7 +350,7 @@ void Solver::saveValues(const std::string& postfix) {
     return;
   }
 
-  std::string fname = out_dir_+ "/" + toString6digit(num_generated_);
+  std::string fname = out_dir_+ "/id:" + toString6digit(num_generated_);
   // Add postfix to record where it is genereated
   if (!postfix.empty())
       fname = fname + "-" + postfix;
@@ -454,8 +467,12 @@ void Solver::addConstraint(ExprRef e) {
     QSYM_ASSERT(castAs<BoolExpr>(e)->value());
     return;
   }
-  if (e->isConcrete())
+  if (e->isConcrete()) {
+    #ifdef DIRECT_DEBUG
+    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "is concrete addconstraint \n";
+    #endif
     return;
+  }
   dep_forest_.addNode(e);
 }
 
@@ -538,7 +555,7 @@ void Solver::negatePath(ExprRef e, bool taken) {
   addToSolver(e, !taken);
   bool sat = checkAndSave();
   if (!sat) {
-    cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[31m" << "shit"  << "\033[0m"<< ", unsat, reseting\n";
+    cerr << "\033[33m" <<  "[ INFO ]" << "\033[31m" << "optimistic solving\n" << "\033[0m";
     reset();
     // optimistic solving
     addToSolver(e, !taken);
