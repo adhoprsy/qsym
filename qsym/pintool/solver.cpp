@@ -8,7 +8,7 @@ namespace {
 
 const uint64_t kUsToS = 1000000;
 const int kSessionIdLength = 32;
-const unsigned kSolverTimeout = 10000; // 10 seconds
+const unsigned kSolverTimeout = 1000000; // 1000 seconds
 
 std::string toString6digit(INT32 val) {
   char buf[6 + 1]; // ndigit + 1
@@ -97,6 +97,9 @@ Solver::Solver(
   , solving_time_(0)
   , last_pc_(0)
   , dep_forest_()
+  , recorded_index_({})
+  , sub_expr_list_({})
+  , dictionary_({})
 {
   // Set timeout for solver
   z3::params p(context_);
@@ -113,6 +116,7 @@ void Solver::push() {
 
 void Solver::reset() {
   solver_.reset();
+  recorded_index_.clear();
 }
 
 void Solver::pop() {
@@ -440,6 +444,7 @@ void Solver::addConstraint(ExprRef e) {
   if (e->isConcrete())
     return;
   dep_forest_.addNode(e);
+
 }
 
 bool Solver::addRangeConstraint(ExprRef e, bool taken) {
@@ -516,6 +521,10 @@ bool Solver::isInterestingJcc(ExprRef rel_expr, bool taken, ADDRINT pc) {
 }
 
 void Solver::negatePath(ExprRef e, bool taken) {
+
+  record_offsets(e);
+  extract_sub_expr_with_offset_range();
+
   reset();
   syncConstraints(e);
   addToSolver(e, !taken);
@@ -542,4 +551,165 @@ void Solver::checkFeasible() {
 #endif
 }
 
+void Solver::record_offsets(ExprRef e) {
+  e->print();
+  cerr << "\n";
+  if (!e) return;
+  if (e->kind() == Equal) {
+    std::set<size_t> offset{};
+    if (extract_offset(e, offset)) {
+      cerr << "???\n";
+      for (auto&x: offset) cerr << x << " ";
+      cerr << "\n";
+      e->print(); 
+      cerr << "\n";
+      recorded_index_[OffsetRange{*offset.begin(), *prev(offset.end())}].push_back(e);
+    }
+  }
+  else if (e->num_children() == 2) {
+    record_offsets(e->getFirstChild());
+    record_offsets(e->getSecondChild());
+  }
+  else {
+    record_offsets(e->getFirstChild());
+  }
+}
+
+bool Solver::extract_offset(ExprRef e, std::set<size_t>& offset) {
+  if (!e) return false;
+  // cerr << e->kind() << " ";
+  // e->print();
+  // cerr << "\n";
+  if (e->kind() == Constant ) return false;
+  if (e->kind() == Concat) {
+    for(auto i=0;i<e->num_children();++i) {
+      extract_offset(e->getChild(i), offset);
+    }
+  }
+  else if (e->kind() == Read) {
+    auto index = castAs<ReadExpr>(e)->index();
+    cerr << "found index :" << index  << "\n";
+    offset.insert(size_t(index)); 
+    return true;
+  }
+  bool res = extract_offset(e->getFirstChild(), offset) || extract_offset(e->getSecondChild(), offset);
+  return res;
+}
+
+
+void Solver::extract_sub_expr_with_offset_range() {
+  size_t last_index = 0;
+  SubExprGroup subgroup{};
+  for (auto& [offset, e]: recorded_index_) {
+    //TODO: support multiple possible expr on single offset
+    auto expr = e[0];
+
+    if (offset.begin == last_index + 1) {
+      subgroup.push_back(expr);
+    } else {
+      sub_expr_list_.push_back(std::move(subgroup));
+      subgroup.clear();
+      subgroup.push_back(expr);
+    }
+    last_index = offset.end;
+  }
+  if (subgroup.size() > 0) 
+    sub_expr_list_.push_back(std::move(subgroup));
+
+  for (auto& sub: sub_expr_list_ ) {
+    reset();
+    for (auto& subsub: sub) {
+      addToSolver(subsub, true);
+    }
+    if (check() == z3::sat) {
+      addDiction();
+    }
+  }
+}
+
+void Solver::addDiction() {
+  
+  using pt = std::pair<int, UINT8>;
+
+  size_t begin = UINTMAX_MAX, end = 0;
+
+  z3::model m = solver_.get_model();
+  unsigned num_constants = m.num_consts();
+
+  cerr << "num_constants_ " << num_constants << "\n";
+
+  std::vector<std::pair<int,UINT8>> values{};
+  values.reserve(num_constants);
+  for (unsigned i = 0; i < num_constants; i++) {
+    z3::func_decl decl = m.get_const_decl(i);
+    z3::expr e = m.get_const_interp(decl);
+    z3::symbol name = decl.name();
+
+    if (name.kind() == Z3_INT_SYMBOL) {
+      int value = e.get_numeral_int();
+      if (name.to_int() < 0) continue;
+      values.push_back(
+        make_pair(name.to_int(), (UINT8)value));
+      begin = min(begin, static_cast<size_t>(name.to_int()));
+      end = max(end, static_cast<size_t>(name.to_int()));
+    }
+  }
+  std::sort(values.begin(), values.end(), [](pt&a, pt&b) {
+    return a.first < b.first;
+  });
+
+  std::vector<UINT8> word{}; 
+  std::transform(values.begin(), values.end(), std::back_inserter(word), 
+    [](const pt& x) {return x.second;}
+  );
+  dictionary_.emplace_back(std::make_pair(OffsetRange{begin, end}, word));
+  
+  cerr << begin << " - " << end  << " len:" << word.size()<< 
+     " | ";
+    for (auto&x : word) {
+      cerr << std::hex << std::setw(2) << std::setfill('0') << 
+      static_cast<int>(x);
+    }
+    cerr << "\n";
+}
+
+void Solver::saveDiction() {
+  for (auto& [range, values]: dictionary_) {
+    cerr << range.begin << " - " << range.end << 
+     " | ";
+    for (auto&x : values) {
+      cerr << std::hex << std::setw(2) << std::setfill('0') << 
+      static_cast<int>(x);
+    }
+    cerr << "\n";
+  }
+  return;
+  // If no output directory is specified, then just print it out
+  if (out_dir_.empty()) {
+    cerr << "empty out dir\n";
+    // printValues(values);
+    return;
+  }
+
+  std::string fname = out_dir_+ "/" + input_file_;
+  // Add postfix to record where it is genereated
+  
+  ofstream of(fname, std::ofstream::out | std::ofstream::binary);
+  LOG_INFO("New dictionary: " + fname + "\n");
+  if (of.fail())
+    LOG_FATAL("Unable to open a file to write results\n");
+
+  for (auto& [range, values]: dictionary_){
+      // of.write(range.begin,sizeof(range.begin));
+      // of.write(range.begin,sizeof(range.begin));
+      // of.write(range.begin,sizeof(range.begin));
+      // TODO: batch write
+      for (unsigned i = 0; i < values.size(); i++) {
+        char val = values[i];
+        of.write(&val, sizeof(val));
+      }
+      of.write("\n", sizeof(char));
+  }
+  of.close();
+}
 } // namespace qsym

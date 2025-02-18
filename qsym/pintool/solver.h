@@ -3,6 +3,13 @@
 
 #include <z3++.h>
 #include <fstream>
+#include <vector>
+#include <map>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
+#include <algorithm>
+#include <cstdint>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -19,6 +26,9 @@ namespace qsym {
 
 extern z3::context *g_z3_context;
 typedef std::unordered_set<ExprRef, ExprRefHash, ExprRefEqual> ExprRefSetTy;
+
+typedef std::vector<ExprRef> SubExprGroup;
+typedef std::vector<SubExprGroup> SubExprList;
 
 class Solver {
 public:
@@ -64,6 +74,19 @@ protected:
   ADDRINT               last_pc_;
   DependencyForest<Expr> dep_forest_;
 
+  struct OffsetRange {
+    size_t begin;
+    size_t end;
+    bool operator<(const OffsetRange& o) const {
+      if (begin == o.begin) return end < o.end;
+      return begin < o.begin;
+    }
+  };
+  
+  std::map<OffsetRange, std::vector<ExprRef>> recorded_index_;
+  SubExprList sub_expr_list_;
+  std::vector<std::pair<OffsetRange, std::vector<UINT8>>> dictionary_;
+
   void checkOutDir();
   void readInput();
 
@@ -90,6 +113,12 @@ protected:
   void solveOne(z3::expr);
 
   void checkFeasible();
+
+  bool extract_offset(ExprRef e, std::set<size_t>& offset);
+  void record_offsets(ExprRef e);
+  void extract_sub_expr_with_offset_range();
+  void addDiction();
+  void saveDiction();
 };
 
 extern Solver* g_solver;
