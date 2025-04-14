@@ -85,7 +85,8 @@ Solver::Solver(
     const std::string input_file,
     const std::string out_dir,
     const std::string symdict_dir,
-    const std::string bitmap)
+    const std::string bitmap,
+    bool enable_dict)
   : input_file_(input_file)
   , inputs_()
   , out_dir_(out_dir)
@@ -103,6 +104,7 @@ Solver::Solver(
   , recorded_index_({})
   , sub_expr_list_({})
   , dictionary_({})
+  , enable_dict_(enable_dict)
 {
   cerr << input_file_ << "\n";
   // Set timeout for solver
@@ -566,6 +568,7 @@ void Solver::checkFeasible() {
 }
 
 void Solver::record_offsets(ExprRef e) {
+  if (!enable_dict_) return;
   if (!e) return;
 
   e->print();
@@ -613,6 +616,9 @@ bool Solver::extract_offset(ExprRef e, std::set<uint32_t>& offset) {
 }
 
 void Solver::extract_sub_expr_with_offset_range() {
+
+  if (!enable_dict_) return;
+
   size_t last_index = 0;
   SubExprGroup subgroup{};
   for (auto& [offset, e]: recorded_index_) {
@@ -700,6 +706,8 @@ std::string get_filename(const string& path) {
 }
 
 void Solver::saveSymDict() {
+
+  if (!enable_dict_) return;
 
   // std::sort(dictionary_.begin(), dictionary_.end(),
   //   [&](const std::pair<OffsetRange, vector<UINT8>>& a,

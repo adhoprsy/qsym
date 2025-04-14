@@ -39,7 +39,8 @@ public:
       const std::string input_file,
       const std::string out_dir,
       const std::string symdict_dir,
-      const std::string bitmap);
+      const std::string bitmap,
+      bool enable_dict);
   virtual ~Solver() = default;
 
   void push();
@@ -116,6 +117,7 @@ protected:
 
   void checkFeasible();
 
+  bool enable_dict_;
   bool extract_offset(ExprRef e, std::set<uint32_t>& offset);
   void record_offsets(ExprRef e);
   void clear_offset_records();
