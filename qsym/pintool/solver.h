@@ -38,6 +38,7 @@ public:
   Solver(
       const std::string input_file,
       const std::string out_dir,
+      const std::string symdict_dir,
       const std::string bitmap);
   virtual ~Solver() = default;
 
@@ -62,6 +63,7 @@ protected:
   std::string           input_file_;
   std::vector<UINT8>    inputs_;
   std::string           out_dir_;
+  std::string           symdict_dir_;
   z3::context&          context_;
   z3::solver            solver_;
   std::string           session_;
@@ -82,7 +84,7 @@ protected:
       return begin < o.begin;
     }
   };
-  
+
   std::map<OffsetRange, std::vector<ExprRef>> recorded_index_;
   SubExprList sub_expr_list_;
   std::vector<std::pair<OffsetRange, std::vector<UINT8>>> dictionary_;
@@ -116,9 +118,10 @@ protected:
 
   bool extract_offset(ExprRef e, std::set<size_t>& offset);
   void record_offsets(ExprRef e);
+  void clear_offset_records();
   void extract_sub_expr_with_offset_range();
-  void addDiction();
-  void saveDiction();
+  void addSymDict();
+  virtual void saveSymDict();
 };
 
 extern Solver* g_solver;

@@ -1,4 +1,5 @@
 #include <set>
+#include <filesystem>
 #include <byteswap.h>
 #include "solver.h"
 
@@ -83,10 +84,12 @@ inline bool isEqual(ExprRef e, bool taken) {
 Solver::Solver(
     const std::string input_file,
     const std::string out_dir,
+    const std::string symdict_dir,
     const std::string bitmap)
   : input_file_(input_file)
   , inputs_()
   , out_dir_(out_dir)
+  , symdict_dir_(symdict_dir)
   , context_(*g_z3_context)
   , solver_(z3::solver(context_, "QF_BV"))
   , num_generated_(0)
@@ -101,6 +104,7 @@ Solver::Solver(
   , sub_expr_list_({})
   , dictionary_({})
 {
+  cerr << input_file_ << "\n";
   // Set timeout for solver
   z3::params p(context_);
   p.set(":timeout", kSolverTimeout);
@@ -246,6 +250,7 @@ void Solver::solveAll(ExprRef e, llvm::APInt val) {
     reset();
     syncConstraints(e);
     addToSolver(expr_concrete, false);
+    clear_offset_records();
 
     if (check() != z3::sat) {
       // Optimistic solving
@@ -403,14 +408,17 @@ void Solver::syncConstraints(ExprRef e) {
   for (std::shared_ptr<DependencyTree<Expr>> tree : forest) {
     std::vector<std::shared_ptr<Expr>> nodes = tree->getNodes();
     for (std::shared_ptr<Expr> node : nodes) {
-      if (isRelational(node.get()))
+      if (isRelational(node.get())) {
+        record_offsets(node);
         addToSolver(node, true);
+      }
       else {
         // Process range-based constraints
         bool valid = false;
         for (INT32 i = 0; i < 2; i++) {
           ExprRef expr_range = getRangeConstraint(node, i);
           if (expr_range != NULL) {
+            record_offsets(expr_range);
             addToSolver(expr_range, true);
             valid = true;
           }
@@ -529,6 +537,12 @@ void Solver::negatePath(ExprRef e, bool taken) {
   syncConstraints(e);
   addToSolver(e, !taken);
   bool sat = checkAndSave();
+
+  record_offsets(e);
+  extract_sub_expr_with_offset_range();
+
+  clear_offset_records();
+
   if (!sat) {
     reset();
     // optimistic solving
@@ -552,17 +566,19 @@ void Solver::checkFeasible() {
 }
 
 void Solver::record_offsets(ExprRef e) {
+  if (!e) return;
+
   e->print();
   cerr << "\n";
-  if (!e) return;
+
   if (e->kind() == Equal) {
     std::set<size_t> offset{};
     if (extract_offset(e, offset)) {
-      cerr << "???\n";
+      cerr << "extract offset :\n";
       for (auto&x: offset) cerr << x << " ";
-      cerr << "\n";
-      e->print(); 
-      cerr << "\n";
+      cerr << "  |  from: ";
+      e->print();
+      cerr << "\n==============\n";
       recorded_index_[OffsetRange{*offset.begin(), *prev(offset.end())}].push_back(e);
     }
   }
@@ -589,13 +605,12 @@ bool Solver::extract_offset(ExprRef e, std::set<size_t>& offset) {
   else if (e->kind() == Read) {
     auto index = castAs<ReadExpr>(e)->index();
     cerr << "found index :" << index  << "\n";
-    offset.insert(size_t(index)); 
+    offset.insert(size_t(index));
     return true;
   }
   bool res = extract_offset(e->getFirstChild(), offset) || extract_offset(e->getSecondChild(), offset);
   return res;
 }
-
 
 void Solver::extract_sub_expr_with_offset_range() {
   size_t last_index = 0;
@@ -604,7 +619,7 @@ void Solver::extract_sub_expr_with_offset_range() {
     //TODO: support multiple possible expr on single offset
     auto expr = e[0];
 
-    if (offset.begin == last_index + 1) {
+    if (offset.begin <= last_index + 1) {
       subgroup.push_back(expr);
     } else {
       sub_expr_list_.push_back(std::move(subgroup));
@@ -613,7 +628,7 @@ void Solver::extract_sub_expr_with_offset_range() {
     }
     last_index = offset.end;
   }
-  if (subgroup.size() > 0) 
+  if (subgroup.size() > 0)
     sub_expr_list_.push_back(std::move(subgroup));
 
   for (auto& sub: sub_expr_list_ ) {
@@ -622,13 +637,19 @@ void Solver::extract_sub_expr_with_offset_range() {
       addToSolver(subsub, true);
     }
     if (check() == z3::sat) {
-      addDiction();
+      addSymDict();
     }
   }
+  saveSymDict();
 }
 
-void Solver::addDiction() {
-  
+void Solver::clear_offset_records() {
+  recorded_index_.clear();
+  sub_expr_list_.clear();
+}
+
+void Solver::addSymDict() {
+
   using pt = std::pair<int, UINT8>;
 
   size_t begin = UINTMAX_MAX, end = 0;
@@ -658,58 +679,78 @@ void Solver::addDiction() {
     return a.first < b.first;
   });
 
-  std::vector<UINT8> word{}; 
-  std::transform(values.begin(), values.end(), std::back_inserter(word), 
+  std::vector<UINT8> word{};
+  std::transform(values.begin(), values.end(), std::back_inserter(word),
     [](const pt& x) {return x.second;}
   );
   dictionary_.emplace_back(std::make_pair(OffsetRange{begin, end}, word));
-  
-  cerr << begin << " - " << end  << " len:" << word.size()<< 
-     " | ";
+
+  if (begin <= end) {
+    cerr << begin << " - " << end  << " len:" << word.size()<<" | ";
     for (auto&x : word) {
-      cerr << std::hex << std::setw(2) << std::setfill('0') << 
-      static_cast<int>(x);
+      cerr << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(x);
     }
     cerr << "\n";
+  }
 }
 
-void Solver::saveDiction() {
+std::string get_filename(const string& path) {
+  namespace fs = std::filesystem;
+  return fs::path(path).filename().string();  // 自动处理不同操作系统的路径分隔符
+}
+
+void Solver::saveSymDict() {
+
+  LOG_INFO("saving sym dictionary");
+
+  // std::sort(dictionary_.begin(), dictionary_.end(),
+  //   [&](const std::pair<OffsetRange, vector<UINT8>>& a,
+  //       const std::pair<OffsetRange, vector<UINT8>>& b){
+  //         return a.first < b.first;
+  //       });
+
+  #ifdef DEBUG
   for (auto& [range, values]: dictionary_) {
-    cerr << range.begin << " - " << range.end << 
+    cerr << range.begin << " - " << range.end <<
      " | ";
     for (auto&x : values) {
-      cerr << std::hex << std::setw(2) << std::setfill('0') << 
+      cerr << std::hex << std::setw(2) << std::setfill('0') <<
       static_cast<int>(x);
     }
     cerr << "\n";
   }
-  return;
+  #endif
+
   // If no output directory is specified, then just print it out
-  if (out_dir_.empty()) {
-    cerr << "empty out dir\n";
+  if (symdict_dir_.empty()) {
+    cerr << "empty symdict output dir\n";
     // printValues(values);
     return;
   }
 
-  std::string fname = out_dir_+ "/" + input_file_;
+  std::string fname = symdict_dir_+ "/" + get_filename(input_file_);
   // Add postfix to record where it is genereated
-  
-  ofstream of(fname, std::ofstream::out | std::ofstream::binary);
-  LOG_INFO("New dictionary: " + fname + "\n");
+
+  ofstream of(fname, std::ofstream::out | std::ofstream::binary | std::ofstream::app);
+  LOG_INFO("Writing dictionary: " + fname + "\n");
   if (of.fail())
     LOG_FATAL("Unable to open a file to write results\n");
 
-  for (auto& [range, values]: dictionary_){
-      // of.write(range.begin,sizeof(range.begin));
-      // of.write(range.begin,sizeof(range.begin));
-      // of.write(range.begin,sizeof(range.begin));
+  for (auto& dict: dictionary_){
+      auto&& range = dict.first;
+      if (range.begin == UINTMAX_MAX || range.begin > range.end) continue;
+
+      auto&& values = dict.second;
+      of.write(reinterpret_cast<const char*>(&range.begin),sizeof(range.begin));
+      of.write(reinterpret_cast<const char*>(&range.end),sizeof(range.begin));
       // TODO: batch write
       for (unsigned i = 0; i < values.size(); i++) {
         char val = values[i];
         of.write(&val, sizeof(val));
       }
-      of.write("\n", sizeof(char));
+      of.write("\n", 1);
   }
   of.close();
+  dictionary_.clear();
 }
 } // namespace qsym
