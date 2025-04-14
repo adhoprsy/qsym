@@ -77,8 +77,8 @@ protected:
   DependencyForest<Expr> dep_forest_;
 
   struct OffsetRange {
-    size_t begin;
-    size_t end;
+    uint32_t begin;
+    uint32_t end;
     bool operator<(const OffsetRange& o) const {
       if (begin == o.begin) return end < o.end;
       return begin < o.begin;
@@ -116,7 +116,7 @@ protected:
 
   void checkFeasible();
 
-  bool extract_offset(ExprRef e, std::set<size_t>& offset);
+  bool extract_offset(ExprRef e, std::set<uint32_t>& offset);
   void record_offsets(ExprRef e);
   void clear_offset_records();
   void extract_sub_expr_with_offset_range();

@@ -572,7 +572,7 @@ void Solver::record_offsets(ExprRef e) {
   cerr << "\n";
 
   if (e->kind() == Equal) {
-    std::set<size_t> offset{};
+    std::set<uint32_t> offset{};
     if (extract_offset(e, offset)) {
       cerr << "extract offset :\n";
       for (auto&x: offset) cerr << x << " ";
@@ -591,7 +591,7 @@ void Solver::record_offsets(ExprRef e) {
   }
 }
 
-bool Solver::extract_offset(ExprRef e, std::set<size_t>& offset) {
+bool Solver::extract_offset(ExprRef e, std::set<uint32_t>& offset) {
   if (!e) return false;
   // cerr << e->kind() << " ";
   // e->print();
@@ -652,7 +652,7 @@ void Solver::addSymDict() {
 
   using pt = std::pair<int, UINT8>;
 
-  size_t begin = UINTMAX_MAX, end = 0;
+  uint32_t begin = UINT32_MAX, end = 0;
 
   z3::model m = solver_.get_model();
   unsigned num_constants = m.num_consts();
@@ -671,8 +671,8 @@ void Solver::addSymDict() {
       if (name.to_int() < 0) continue;
       values.push_back(
         make_pair(name.to_int(), (UINT8)value));
-      begin = min(begin, static_cast<size_t>(name.to_int()));
-      end = max(end, static_cast<size_t>(name.to_int()));
+      begin = min(begin, static_cast<uint32_t>(name.to_int()));
+      end = max(end, static_cast<uint32_t>(name.to_int()));
     }
   }
   std::sort(values.begin(), values.end(), [](pt&a, pt&b) {
@@ -700,8 +700,6 @@ std::string get_filename(const string& path) {
 }
 
 void Solver::saveSymDict() {
-
-  LOG_INFO("saving sym dictionary");
 
   // std::sort(dictionary_.begin(), dictionary_.end(),
   //   [&](const std::pair<OffsetRange, vector<UINT8>>& a,
@@ -731,24 +729,27 @@ void Solver::saveSymDict() {
   std::string fname = symdict_dir_+ "/" + get_filename(input_file_);
   // Add postfix to record where it is genereated
 
-  ofstream of(fname, std::ofstream::out | std::ofstream::binary | std::ofstream::app);
+  ofstream of(fname, std::ofstream::binary | std::ofstream::app);
   LOG_INFO("Writing dictionary: " + fname + "\n");
   if (of.fail())
     LOG_FATAL("Unable to open a file to write results\n");
 
   for (auto& dict: dictionary_){
       auto&& range = dict.first;
-      if (range.begin == UINTMAX_MAX || range.begin > range.end) continue;
+      if (range.begin == UINT32_MAX || range.begin > range.end) continue;
 
       auto&& values = dict.second;
-      of.write(reinterpret_cast<const char*>(&range.begin),sizeof(range.begin));
-      of.write(reinterpret_cast<const char*>(&range.end),sizeof(range.begin));
+      cerr << "writing down begin: " << range.begin << " end: " << range.end << "\n";
+
+      of.write(reinterpret_cast<const char*>(&range.begin),sizeof(uint32_t));
+      of.write(reinterpret_cast<const char*>(&range.end),sizeof(uint32_t));
+
       // TODO: batch write
       for (unsigned i = 0; i < values.size(); i++) {
         char val = values[i];
-        of.write(&val, sizeof(val));
+        of.write(&val, sizeof(char));
+        if (i > range.end - range.begin) break;
       }
-      of.write("\n", 1);
   }
   of.close();
   dictionary_.clear();
