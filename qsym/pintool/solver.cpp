@@ -1,5 +1,6 @@
 #include <set>
 #include <byteswap.h>
+#include <filesystem>
 #include "solver.h"
 
 namespace qsym {
@@ -78,6 +79,11 @@ inline bool isEqual(ExprRef e, bool taken) {
     (e->kind() == Distinct && !taken);
 }
 
+std::string get_filename(const std::string& s) {
+  std::filesystem::path p{s};
+  return p.filename().string();
+}
+
 } // namespace
 
 Solver::Solver(
@@ -85,6 +91,7 @@ Solver::Solver(
     const std::string out_dir,
     const std::string bitmap)
   : input_file_(input_file)
+  , input_filename_(get_filename(input_file_))
   , inputs_()
   , out_dir_(out_dir)
   , context_(*g_z3_context)
@@ -152,7 +159,7 @@ bool Solver::checkAndSave(const std::string& postfix) {
     return true;
   }
   else {
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "unsat" << "\n";
+    // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "unsat" << "\n";
     LOG_DEBUG("unsat\n");
     return false;
   }
@@ -169,14 +176,14 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc,
             << "is_direct: " << is_directed_target << "\n";
   #endif
   if (e->isConcrete()) {
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "expr is concrete \n";
+    // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "expr is concrete \n";
     return;
   }
 
   // if e == Bool(true), then ignore
   if (e->kind() == Bool) {
     assert(!(castAs<BoolExpr>(e)->value()  ^ taken));
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "e == true\n";
+    // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "e == true\n";
     return;
   }
 
@@ -196,10 +203,10 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc,
 
   if (is_directed_mode && is_directed_target) {
     if (!is_interesting) {
-      std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "branch not interesting\n";
+      // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << "branch not interesting\n";
     }
     //@SJJ TODO: directed
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << " targat found, trying to negate\n";
+    // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" << " targat found, trying to negate\n";
     negatePath(e, taken);
   }
   if (!is_directed_mode && is_interesting) {
@@ -274,7 +281,7 @@ void Solver::solveAll(ExprRef e, llvm::APInt val) {
 
     if (check() != z3::sat) {
       // Optimistic solving
-      std::cerr << "\033[33m" <<  "[ INFO ]" << "\033[0m" << "optimistic solving\n";
+      // std::cerr << "\033[33m" <<  "[ INFO ]" << "\033[0m" << "optimistic solving\n";
       reset();
       addToSolver(expr_concrete, false);
       postfix = "optimistic";
@@ -350,7 +357,7 @@ void Solver::saveValues(const std::string& postfix) {
     return;
   }
 
-  std::string fname = out_dir_+ "/id:" + toString6digit(num_generated_);
+  std::string fname = out_dir_+ "/" + input_filename_ + "-" +  toString6digit(num_generated_);
   // Add postfix to record where it is genereated
   if (!postfix.empty())
       fname = fname + "-" + postfix;

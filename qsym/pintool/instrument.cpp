@@ -2215,7 +2215,7 @@ instrumentJcc(ThreadContext* thread_ctx,
 #ifdef CONFIG_TRACE
     trace_addJcc(e, ctx, taken);
 #endif
-    std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" <<" qsym instrument called " << hexstr(pc) << ": " << e->toString() << "\n";
+    // std::cerr << "\033[33m" <<  "[ DEBUG ]" << "\033[0m" <<" qsym instrument called " << hexstr(pc) << ": " << e->toString() << "\n";
     // @SJJ what is this
     g_solver->addJcc(e, taken, pc, false, true);
   }

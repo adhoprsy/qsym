@@ -50,6 +50,7 @@ public:
 
 protected:
   std::string           input_file_;
+  std::string           input_filename_;
   std::vector<UINT8>    inputs_;
   std::string           out_dir_;
   z3::context&          context_;
