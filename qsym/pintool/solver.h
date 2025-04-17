@@ -50,7 +50,7 @@ public:
   z3::check_result check();
 
   bool checkAndSave(const std::string& postfix="");
-  void addJcc(ExprRef, bool, ADDRINT);
+  void addJcc(ExprRef, bool, ADDRINT, bool enable_dict, bool is_target);
   void addAddr(ExprRef, ADDRINT);
   void addAddr(ExprRef, llvm::APInt);
   void addValue(ExprRef, ADDRINT);

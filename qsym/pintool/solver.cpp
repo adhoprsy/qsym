@@ -167,7 +167,7 @@ bool Solver::checkAndSave(const std::string& postfix) {
   }
 }
 
-void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc) {
+void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, bool enable_dict, bool is_target) {
   // Save the last instruction pointer for debugging
   last_pc_ = pc;
 
@@ -192,7 +192,9 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc) {
   else
     is_interesting = isInterestingJcc(e, taken, pc);
 
-  if (is_interesting)
+  if (!enable_dict && is_interesting)
+    negatePath(e, taken);
+  else if (is_interesting && enable_dict && is_target)
     negatePath(e, taken);
   addConstraint(e, taken, is_interesting);
 }
