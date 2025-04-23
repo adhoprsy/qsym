@@ -12,7 +12,8 @@ OLD = 1
 CRASH = 2
 
 TIMEOUT = 5 * 1000
-MAP_SIZE = 65536
+#MAP_SIZE = 65536
+MAP_SIZE = 65536 * 4
 
 def read_bitmap_file(bitmap_file):
     with open(bitmap_file, "rb") as f:

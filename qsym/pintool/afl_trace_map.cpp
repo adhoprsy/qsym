@@ -2,7 +2,8 @@
 
 namespace qsym {
 
-const int kMapSize = 65536;
+// const int kMapSize = 65536;
+const int kMapSize = 65536 * 4;
 
 // static  KNOB<bool> g_opt_context_sensitive(KNOB_MODE_WRITEONCE, "pintool",
 //     "context_sensitive", "1", "Generate testcases by awaring of contexts");
@@ -162,4 +163,3 @@ bool AflTraceMap::isInterestingBranch(ADDRINT pc, bool taken) {
 }
 
 } // namespace qsym
-

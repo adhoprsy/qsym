@@ -1,7 +1,8 @@
 #include <iostream>
 #include "call_stack_manager.h"
 
-static const int kBitmapSize = 65536;
+static const int kBitmapSize = 4 * 65536;
+//static const int kBitmapSize = 65536;
 static const int kStride = 8;
 
 namespace qsym {
