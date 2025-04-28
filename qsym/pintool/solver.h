@@ -119,7 +119,7 @@ protected:
 
   bool enable_dict_;
   bool extract_offset(ExprRef e, std::set<uint32_t>& offset);
-  void record_offsets(ExprRef e);
+  void record_offsets(ExprRef e, bool taken=true);
   void clear_offset_records();
   void extract_sub_expr_with_offset_range();
   void addSymDict();

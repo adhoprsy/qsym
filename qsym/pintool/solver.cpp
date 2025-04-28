@@ -194,7 +194,7 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, bool enable_dict, bool is
 
   if (!enable_dict && is_interesting)
     negatePath(e, taken);
-  else if (is_interesting && enable_dict && is_target)
+  else if (is_interesting || (enable_dict && is_target))
     negatePath(e, taken);
   addConstraint(e, taken, is_interesting);
 }
@@ -413,7 +413,7 @@ void Solver::syncConstraints(ExprRef e) {
     std::vector<std::shared_ptr<Expr>> nodes = tree->getNodes();
     for (std::shared_ptr<Expr> node : nodes) {
       if (isRelational(node.get())) {
-        record_offsets(node);
+        record_offsets(node, true);
         addToSolver(node, true);
       }
       else {
@@ -422,7 +422,7 @@ void Solver::syncConstraints(ExprRef e) {
         for (INT32 i = 0; i < 2; i++) {
           ExprRef expr_range = getRangeConstraint(node, i);
           if (expr_range != NULL) {
-            record_offsets(expr_range);
+            record_offsets(expr_range, true);
             addToSolver(expr_range, true);
             valid = true;
           }
@@ -534,18 +534,15 @@ bool Solver::isInterestingJcc(ExprRef rel_expr, bool taken, ADDRINT pc) {
 
 void Solver::negatePath(ExprRef e, bool taken) {
 
-  record_offsets(e);
-  extract_sub_expr_with_offset_range();
-
   reset();
+  clear_offset_records();
+
   syncConstraints(e);
   addToSolver(e, !taken);
   bool sat = checkAndSave();
 
-  record_offsets(e);
+  record_offsets(e, !taken);
   extract_sub_expr_with_offset_range();
-
-  clear_offset_records();
 
   if (!sat) {
     reset();
@@ -569,14 +566,24 @@ void Solver::checkFeasible() {
 #endif
 }
 
-void Solver::record_offsets(ExprRef e) {
+void Solver::record_offsets(ExprRef e, bool taken) {
   if (!enable_dict_) return;
   if (!e) return;
 
-  e->print();
-  cerr << "\n";
+  e->simplify();
+  if (!taken)
+    e = g_expr_builder->createLNot(e);
 
-  if (e->kind() == Equal) {
+  if (e->kind() == Equal ||
+      e->kind() == Distinct ||
+      e->kind() == Ult ||
+      e->kind() == Ule ||
+      e->kind() == Ugt ||
+      e->kind() ==  Uge ||
+      e->kind() == Slt ||
+      e->kind() == Sle ||
+      e->kind() == Sgt ||
+      e->kind() == Sge) {
     std::set<uint32_t> offset{};
     if (extract_offset(e, offset)) {
       cerr << "extract offset :\n";
@@ -621,24 +628,27 @@ void Solver::extract_sub_expr_with_offset_range() {
 
   if (!enable_dict_) return;
 
-  size_t last_index = 0;
+  size_t last_index = 0, last_group_begin = 0;
   SubExprGroup subgroup{};
   for (auto& [offset, e]: recorded_index_) {
     //TODO: support multiple possible expr on single offset
-    auto expr = e[0];
+    auto expr = e[rand()%(e.size())];
 
-    if (offset.begin <= last_index + 1) {
+    if (offset.begin <= last_index + 1 || last_index - last_group_begin + 1 >= 8) {
       subgroup.push_back(expr);
     } else {
-      sub_expr_list_.push_back(std::move(subgroup));
+      sub_expr_list_.push_back(subgroup);
       subgroup.clear();
       subgroup.push_back(expr);
+      last_group_begin = offset.begin;
     }
     last_index = offset.end;
   }
+
   if (subgroup.size() > 0)
     sub_expr_list_.push_back(std::move(subgroup));
 
+  // solve subset
   for (auto& sub: sub_expr_list_ ) {
     reset();
     for (auto& subsub: sub) {
@@ -664,8 +674,6 @@ void Solver::addSymDict() {
 
   z3::model m = solver_.get_model();
   unsigned num_constants = m.num_consts();
-
-  cerr << "num_constants_ " << num_constants << "\n";
 
   std::vector<std::pair<int,UINT8>> values{};
   values.reserve(num_constants);
@@ -694,7 +702,7 @@ void Solver::addSymDict() {
   dictionary_.emplace_back(std::make_pair(OffsetRange{begin, end}, word));
 
   if (begin <= end) {
-    cerr << begin << " - " << end  << " len:" << word.size()<<" | ";
+    cerr << "AddSymDict: " << begin << " - " << end  << " len:" << word.size()<<" | ";
     for (auto&x : word) {
       cerr << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(x);
     }
@@ -717,18 +725,6 @@ void Solver::saveSymDict() {
   //         return a.first < b.first;
   //       });
 
-  #ifdef DEBUG
-  for (auto& [range, values]: dictionary_) {
-    cerr << range.begin << " - " << range.end <<
-     " | ";
-    for (auto&x : values) {
-      cerr << std::hex << std::setw(2) << std::setfill('0') <<
-      static_cast<int>(x);
-    }
-    cerr << "\n";
-  }
-  #endif
-
   // If no output directory is specified, then just print it out
   if (symdict_dir_.empty()) {
     cerr << "empty symdict output dir\n";
@@ -749,7 +745,6 @@ void Solver::saveSymDict() {
       if (range.begin == UINT32_MAX || range.begin > range.end) continue;
 
       auto&& values = dict.second;
-      cerr << "writing down begin: " << range.begin << " end: " << range.end << "\n";
 
       of.write(reinterpret_cast<const char*>(&range.begin),sizeof(uint32_t));
       of.write(reinterpret_cast<const char*>(&range.end),sizeof(uint32_t));
