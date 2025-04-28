@@ -696,9 +696,19 @@ void Solver::addSymDict() {
   });
 
   std::vector<UINT8> word{};
-  std::transform(values.begin(), values.end(), std::back_inserter(word),
-    [](const pt& x) {return x.second;}
-  );
+  word.reserve(end - begin + 1);
+  if (values.size() == 0) return;
+  int last_index_ = values[0].first;
+  for (auto& c : values) {
+    if (c.first > last_index_ + 1) {
+      for (int i = last_index_ + 1; i < c.first; ++i) {
+        word.push_back(rand() % 256);
+      }
+    }
+    last_index_ = c.first;
+    word.push_back(c.second);
+  }
+  
   dictionary_.emplace_back(std::make_pair(OffsetRange{begin, end}, word));
 
   if (begin <= end) {
