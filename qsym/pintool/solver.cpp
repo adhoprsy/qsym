@@ -167,7 +167,7 @@ bool Solver::checkAndSave(const std::string& postfix) {
   }
 }
 
-void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, bool enable_dict, bool is_target) {
+void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, bool enable_dict, bool is_target, bool do_symdict) {
   // Save the last instruction pointer for debugging
   last_pc_ = pc;
 
@@ -193,9 +193,9 @@ void Solver::addJcc(ExprRef e, bool taken, ADDRINT pc, bool enable_dict, bool is
     is_interesting = isInterestingJcc(e, taken, pc);
 
   if (!enable_dict && is_interesting)
-    negatePath(e, taken);
+    negatePath(e, taken, false);
   else if (is_interesting || (enable_dict && is_target))
-    negatePath(e, taken);
+    negatePath(e, taken, do_symdict);
   addConstraint(e, taken, is_interesting);
 }
 
@@ -532,8 +532,8 @@ bool Solver::isInterestingJcc(ExprRef rel_expr, bool taken, ADDRINT pc) {
   return interesting;
 }
 
-void Solver::negatePath(ExprRef e, bool taken) {
-
+void Solver::negatePath(ExprRef e, bool taken, bool do_symdict) {
+  enable_dict_ = do_symdict;
   reset();
   clear_offset_records();
 
@@ -586,12 +586,12 @@ void Solver::record_offsets(ExprRef e, bool taken) {
       e->kind() == Sge) {
     std::set<uint32_t> offset{};
     if (extract_offset(e, offset)) {
-      cerr << "extract offset :\n";
-      for (auto&x: offset) cerr << x << " ";
-      cerr << "  |  from: ";
-      e->print();
-      cerr << "\n==============\n";
-      recorded_index_[OffsetRange{*offset.begin(), *prev(offset.end())}].push_back(e);
+      // cerr << "extract offset :\n";
+      // for (auto&x: offset) cerr << x << " ";
+      // cerr << "  |  from: ";
+      // e->print();
+      // cerr << "\n==============\n";
+      recorded_index_[OffsetRange{*offset.begin(), *offset.rbegin()}].push_back(e);
     }
   }
   else if (e->num_children() == 2) {
